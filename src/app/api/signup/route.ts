@@ -1,18 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import fs from "fs";
-
-const DATA_FILE = path.join(process.cwd(), "data", "signups.json");
-
-function ensureDataFile() {
-  const dir = path.dirname(DATA_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  if (!fs.existsSync(DATA_FILE)) {
-    fs.writeFileSync(DATA_FILE, "[]", "utf-8");
-  }
-}
+import { kv } from "@vercel/kv";
 
 export async function POST(req: NextRequest) {
   try {
@@ -33,13 +20,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Invalid email address." }, { status: 400 });
     }
 
-    ensureDataFile();
-
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const signups: unknown[] = JSON.parse(raw);
-
+    const id = crypto.randomUUID();
     const entry = {
-      id: crypto.randomUUID(),
+      id,
       businessName: String(businessName).trim(),
       ownerName: String(ownerName).trim(),
       email: String(email).trim().toLowerCase(),
@@ -48,9 +31,11 @@ export async function POST(req: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    signups.push(entry);
+    // Store individual signup record
+    await kv.set(`signup:${id}`, entry);
 
-    fs.writeFileSync(DATA_FILE, JSON.stringify(signups, null, 2), "utf-8");
+    // Add to sorted set by timestamp for ordered retrieval
+    await kv.zadd("signups", { score: Date.now(), member: id });
 
     return NextResponse.json({ success: true }, { status: 201 });
   } catch (err) {

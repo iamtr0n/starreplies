@@ -1,9 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import fs from "fs";
+import { kv } from "@vercel/kv";
 
-const DATA_FILE = path.join(process.cwd(), "data", "signups.json");
-const ADMIN_PASSWORD = "gridadmin2026";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? "gridadmin2026";
 
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -13,14 +11,19 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    if (!fs.existsSync(DATA_FILE)) {
+    // Get all signup IDs ordered by timestamp (newest first)
+    const ids = await kv.zrange("signups", 0, -1, { rev: true });
+
+    if (!ids || ids.length === 0) {
       return NextResponse.json({ signups: [] });
     }
 
-    const raw = fs.readFileSync(DATA_FILE, "utf-8");
-    const signups = JSON.parse(raw);
+    // Fetch all signup records
+    const signups = await Promise.all(
+      ids.map((id) => kv.get(`signup:${id}`))
+    );
 
-    return NextResponse.json({ signups });
+    return NextResponse.json({ signups: signups.filter(Boolean) });
   } catch (err) {
     console.error("[admin/signups] Error:", err);
     return NextResponse.json(
